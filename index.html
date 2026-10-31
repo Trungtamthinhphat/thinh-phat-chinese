@@ -41,7 +41,7 @@ function adminNotice(){return `<div class="notice" style="border-left:4px solid 
 function adminPage(){
  return `<section class="hero"><div><span class="tag">QUẢN TRỊ THỊNH PHÁT</span><h1>Xin chào, Quản lý 👋</h1><p>Quản lý học viên, khóa học và tiến độ học tập tại một nơi.</p></div><div class="illustration" style="font-size:64px">🎓</div></section>
  ${adminNotice()}
- <div class="card" style="margin-top:14px"><b>📱 Yêu cầu đổi thiết bị</b> <button class="btn secondary" onclick="go('deviceRequestsAdmin')">Mở danh sách yêu cầu</button></div>
+ <div class="card" style="margin-top:14px;border:2px solid #247c70"><h2 style="margin:0 0 10px">📱 DUYỆT YÊU CẦU ĐỔI MÁY</h2><p>Nhấn nút bên dưới để xem và xử lý yêu cầu học viên gửi lên Firebase.</p><button class="btn" onclick="go('deviceRequestsAdmin')">MỞ DANH SÁCH ĐỂ DUYỆT / TỪ CHỐI</button></div>
  <div class="section-title"><h2>Tổng quan</h2></div>
  <div class="admin-overview">
  <div class="stat">👥 <strong>${adminStudents.length}</strong><span>Học viên trên Firestore</span></div>
@@ -56,7 +56,7 @@ function adminPage(){
 }
 function studentsAdminPage(){
  const people=adminStudents;
- return `<h1>👥 Quản lý học viên</h1><p class="muted">Danh sách hồ sơ thực tế từ Firebase Firestore. Chỉ Admin mới có thể cấp hoặc thu hồi quyền học.</p>
+ return `<h1>👥 Quản lý học viên</h1><div class="card" style="border:2px solid #247c70;margin:12px 0"><b>📱 Duyệt yêu cầu đổi máy</b><p><button class="btn" onclick="go('deviceRequestsAdmin')">XEM YÊU CẦU VÀ DUYỆT</button></p></div><p class="muted">Danh sách hồ sơ thực tế từ Firebase Firestore. Chỉ Admin mới có thể cấp hoặc thu hồi quyền học.</p>
  <div class="card"><div class="row between" style="flex-wrap:wrap"><h3 style="margin:0">Danh sách học viên (${people.length})</h3><button class="btn secondary" onclick="loadAdminStudents()">↻ Tải lại Firebase</button></div>
  ${studentsLoading?'<p>Đang tải dữ liệu...</p>':''}${studentsError?`<p class="notice red">${esc(studentsError)}</p>`:''}
  <div class="row" style="flex-wrap:wrap;margin-top:14px"><input id="studentSearch" placeholder="🔎 Tìm tên hoặc email..." oninput="filterAdminStudents()" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:10px"><select id="studentLevelFilter" onchange="filterAdminStudents()" style="padding:10px;border:1px solid var(--line);border-radius:10px"><option value="">Tất cả khóa</option>${[1,2,3,4,5].map(i=>`<option>HSK${i}</option>`).join('')}</select></div>
