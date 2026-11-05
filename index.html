@@ -310,7 +310,7 @@ async function markSupportRead(uid,messages){
  nav();refreshSupportStudentList();
  await Promise.all(unread.map(async m=>{
   try{await updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()})}
-  catch(e){console.warn('Không đánh dấu được tin nhắn',e);supportStatus('Không lưu được trạng thái đã đọc trên Firebase: '+(e.code||e.message),true)}
+  catch(e){console.warn('Không đồng bộ được readAt (không ảnh hưởng gửi/nhận tin nhắn):',e); /* Không hiện cảnh báo lỗi đã đọc trong ô chat; trạng thái đã đọc trên máy chủ cần kiểm tra Rules riêng. */}
  }));
 }
 function watchAdminSupport(){adminSupportUnsubs.forEach(f=>{try{f()}catch(e){}});adminSupportUnsubs=[];supportThreads={};if(currentUser!=='admin')return;const ids=[...new Set(adminStudents.map(x=>x.id))];ids.forEach(uid=>adminSupportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportThreads[uid]=snap.docs.map(d=>({id:d.id,...d.data()}));adminUnreadSupport=Object.entries(supportThreads).flatMap(([studentId,msgs])=>msgs.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(studentId+'/'+m.id))).length;nav();refreshSupportStudentList()},e=>console.warn('Chat badge',uid,e))))}
