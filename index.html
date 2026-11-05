@@ -209,7 +209,19 @@ function choosePermissionDemo(levels){document.querySelectorAll('.permission-dem
 function updatePermissionDemo(){let levels=[...document.querySelectorAll('.permission-demo:checked')].map(x=>x.value);$('#permissionPreview').textContent=levels.length?'🔓 Bản xem thử sẽ mở: '+levels.join(', '):'🔒 Chưa chọn khóa học nào.'}
 function testsAdminPage(){return `<h1>📝 Bài tập & kiểm tra</h1><div class="card"><h3>Quản lý đề HSK</h3><p>Soạn câu hỏi trắc nghiệm và đáp án trong mục Khóa học & bài giảng hiện tại.</p><button class="btn" onclick="go('editor')">Mở trình soạn bài</button><p class="muted mini">Chấm điểm toàn trung tâm và giao đề riêng sẽ được kết nối ở bước tiếp theo.</p></div>`}
 function scoresAdminPage(){return `<h1>📊 Tiến độ và điểm học viên</h1><p class="muted">Dữ liệu lấy từ Firestore, bấm Làm mới để cập nhật.</p><button class="btn secondary" onclick="loadAdminScores()">Làm mới</button>${adminScoresError?`<div class="notice red">${esc(adminScoresError)}</div>`:''}<div class="scroll"><table class="admin-table"><thead><tr><th>Học viên</th><th>HSK được cấp</th><th>Bài hoàn thành</th><th>Điểm gần nhất</th><th>Cảnh báo</th></tr></thead><tbody>${adminScores.map(p=>{let scores=Object.values(p.scores||{}).sort((a,b)=>(b.at||'').localeCompare(a.at||'')),latest=scores[0];return `<tr><td>${esc(p.name||p.email||p.id)}</td><td>${esc((p.enrolledCourses||[]).join(', '))}</td><td>${Object.values(p.completed||{}).filter(Boolean).length}</td><td>${latest?latest.score+'/100':'Chưa thi'}</td><td>${scores.filter(x=>x.score<55).length}</td></tr>`}).join('')}</tbody></table></div>`}
-let liveNotices=[],liveNoticesError='',liveUnsubs=[],lastNoticeSignature='';let unreadSupport=0,unreadNotice=0,adminUnreadSupport=0,adminSupportUnsubs=[];function unreadBadge(n){return n>0?`<span class="nav-badge">+${Math.min(5,n)}</span>`:''}async function markNoticesRead(){if(currentUser==='admin'||!auth.currentUser)return;const uid=auth.currentUser.uid;const pending=liveNotices.filter(n=>!n.readAt);await Promise.all(pending.map(n=>updateDoc(doc(db,'students',uid,'inbox',n.id),{readAt:serverTimestamp()}).catch(e=>console.warn('Không đánh dấu được thông báo',e))));}
+let liveNotices=[],liveNoticesError='',liveUnsubs=[],lastNoticeSignature='';let unreadSupport=0,unreadNotice=0,adminUnreadSupport=0,adminSupportUnsubs=[];function unreadBadge(n){return n>0?`<span class="nav-badge">+${Math.min(5,n)}</span>`:''}async function markNoticesRead(){
+ if(currentUser==='admin'||!auth.currentUser)return;
+ const uid=auth.currentUser.uid;
+ const pending=liveNotices.filter(n=>!n.readAt&&!noticeReadPending.has(n.id));
+ if(!pending.length)return;
+ pending.forEach(n=>noticeReadPending.add(n.id));
+ unreadNotice=liveNotices.filter(n=>!n.readAt&&!noticeReadPending.has(n.id)).length;
+ nav();
+ await Promise.all(pending.map(async n=>{
+  try{await updateDoc(doc(db,'students',uid,'inbox',n.id),{readAt:serverTimestamp()})}
+  catch(e){noticeReadPending.delete(n.id);console.warn('Không đánh dấu được thông báo',e);unreadNotice=liveNotices.filter(x=>!x.readAt&&!noticeReadPending.has(x.id)).length;nav()}
+ }));
+}
 function studentNoticesPage(){return `<h1>🔔 Thông báo từ trung tâm</h1>${liveNoticesError?`<p class="notice red">${esc(liveNoticesError)}</p>`:''}${liveNotices.length?liveNotices.map(n=>`<article class="card" style="margin:12px 0"><h3>${esc(n.title||'Thông báo')}</h3><p style="white-space:pre-wrap">${esc(n.body||'')}</p><p class="muted mini">${n.createdAt?.toDate?.().toLocaleString('vi-VN')||'Mới cập nhật'}</p></article>`).join(''):'<div class="card">Chưa có thông báo nào.</div>'}`}
 function noticesAdminPage(){return `<h1>🔔 Thông báo</h1><div class="card"><h3>Soạn thông báo</h3><label class="field">Gửi đến<select id="noticeRecipient"><option value="all">Tất cả học viên</option>${adminStudents.filter(x=>x.status==='active').map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.email||x.id)}</option>`).join('')}</select></label><label class="field">Tiêu đề<input id="noticeTitle" placeholder="Ví dụ: Lịch thi thử HSK"></label><label class="field">Nội dung<textarea id="noticeBody" placeholder="Nội dung thông báo..."></textarea></label><button class="btn" onclick="sendNotice()">Gửi thông báo</button><p id="noticeFeedback" class="muted mini"></p></div><h2>Thông báo đã gửi</h2>${liveNotices.map(n=>`<div class="card" style="margin:10px 0"><b>${esc(n.title)}</b><p>${esc(n.body)}</p><span class="muted mini">${n.recipient==='all'?'Tất cả học viên':'Một học viên'}</span></div>`).join('')||'<p>Chưa có thông báo.</p>'}`}
 async function sendNotice(){if(currentUser!=='admin')return;const title=$('#noticeTitle').value.trim(),body=$('#noticeBody').value.trim(),recipient=$('#noticeRecipient').value;if(!title||!body)return alert('Vui lòng nhập tiêu đề và nội dung.');const feedback=$('#noticeFeedback');feedback.textContent='Đang gửi...';try{const recipients=recipient==='all'?adminStudents.filter(p=>p.status==='active').map(p=>p.id):[recipient];if(!recipients.length)throw new Error('Không có học viên để gửi');await Promise.all(recipients.map(uid=>addDoc(collection(db,'students',uid,'inbox'),{title,body,createdAt:serverTimestamp(),createdBy:auth.currentUser.uid,readAt:null}))); feedback.textContent='Đã gửi thông báo lên Firebase.';$('#noticeTitle').value='';$('#noticeBody').value=''}catch(e){console.error(e);feedback.textContent='Không gửi được: '+(e.code||e.message)}}
@@ -218,25 +230,88 @@ function startLive(){stopLive();const uid=auth.currentUser?.uid,admin=currentUse
  const onError=(area)=>(e)=>{console.error('Realtime '+area,e);if(area==='thông báo'){liveNoticesError='Không đồng bộ được thông báo: '+(e.code||e.message);if(page==='studentNotices')render()}};
  const levels=admin?[1,2,3,4,5]:[1,2,3,4,5].filter(n=>canAccessCourse(n));
  levels.forEach(n=>liveUnsubs.push(onSnapshot(collection(db,'courses','HSK'+n,'lessons'),snap=>{const c=state.courses.find(x=>x.id===n);if(!c)return;const old=JSON.stringify(c.lessons.map(x=>[x.id,x.title,x.listeningText,x.listeningAudio]));c.lessons=snap.docs.map(d=>({...d.data(),id:d.id}));const changed=old!==JSON.stringify(c.lessons.map(x=>[x.id,x.title,x.listeningText,x.listeningAudio]));if(changed&&currentUser&&(page!=='editor'||!editingLesson))render()},onError('bài học'))));
- if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{unreadSupport=snap.docs.filter(d=>d.data().senderRole==='admin'&&!d.data().readAt).length;nav()},onError('tin nhắn')));
- if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'inbox'),snap=>{liveNotices=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));unreadNotice=liveNotices.filter(n=>!n.readAt).length;nav();if(page==='studentNotices'){markNoticesRead();render()}},onError('thông báo')));
+ if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{unreadSupport=snap.docs.filter(d=>d.data().senderRole==='admin'&&!d.data().readAt&&!supportReadPending.has(uid+'/'+d.id)).length;nav()},onError('tin nhắn')));
+ if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'inbox'),snap=>{liveNotices=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));unreadNotice=liveNotices.filter(n=>!n.readAt&&!noticeReadPending.has(n.id)).length;nav();if(page==='studentNotices'){markNoticesRead();render()}},onError('thông báo')));
  if(!admin){liveUnsubs.push(onSnapshot(collection(db,'students',uid,'submissions'),snap=>{snap.docs.forEach(d=>{const sub=d.data(),g=essayGradeCache[d.id];if(!g||!g.submittedAt||!sub.submittedAt||g.submittedAt.toMillis()!==sub.submittedAt.toMillis())essayGradeCache[d.id]={status:'pending'};});if(page==='results'||page==='home')render()},onError('bài nộp')));liveUnsubs.push(onSnapshot(collection(db,'students',uid,'grades'),snap=>{snap.docs.forEach(d=>essayGradeCache[d.id]=d.data());if(page==='results'||page==='home'||(page==='lesson'&&submitted))render()},onError('chấm bài')));liveUnsubs.push(onSnapshot(doc(db,'students',uid),snap=>{if(!snap.exists())return;const d=snap.data(),oldAccess=JSON.stringify(studentAccess.enrolledCourses);studentAccess={status:d.status||'pending',enrolledCourses:Array.isArray(d.enrolledCourses)?d.enrolledCourses:[]};const u=user();u.name=d.name||u.name;u.scores=d.scores||{};u.completed=d.completed||{};u.watched=d.watched||{};u.vocabDone=d.vocabDone||{};if(oldAccess!==JSON.stringify(studentAccess.enrolledCourses)){startLive();render();return}if(currentUser&&page!=='lesson'&&page!=='supportStudent')render()},onError('tiến độ')))}else{liveUnsubs.push(onSnapshot(collection(db,'students'),snap=>{adminStudents=snap.docs.map(d=>({id:d.id,...d.data()}));watchAdminSupport();if(['studentsAdmin','scoresAdmin','studentDetail'].includes(page))render()},onError('học viên')))}
 }
 
 // CHAT HỖ TRỢ: students/{uid}/supportMessages/{messageId}
+let supportReadPending=new Set(),noticeReadPending=new Set(),supportSending=false;
 let supportSelected='',supportMessages=[],supportThreads={},supportError='',supportDraft='',supportUnsubs=[],gradingSelected='',gradingSubs=[],gradingGrades={},gradingError='';
 function cleanSupport(){supportUnsubs.forEach(f=>{try{f()}catch(e){}});supportUnsubs=[]}
 function supportStudentPage(){return `<h1>💬 Trợ giúp</h1><p class="muted">Nhắn tin trực tiếp với Trung tâm Thịnh Phát. Tin nhắn được lưu trên Firebase.</p>${supportChatHtml(false)}`}
 function supportAdminPage(){return `<h1>💬 Hỗ trợ học viên</h1><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px"><section class="card"><h3>Danh sách học viên</h3><div id="supportStudentList">${supportStudentListHtml()}</div></section><section>${supportSelected?supportChatHtml(true):'<div class="card">Chọn một học viên để xem và trả lời tin nhắn.</div>'}</section></div>`}
-function supportStudentListHtml(){return adminStudents.map(p=>{const unread=(supportThreads[p.id]||[]).filter(m=>m.senderRole==='student'&&!m.readAt).length;return `<button class="choice" style="width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openSupportThread('${esc(p.id)}')"><span>💬 ${esc(p.name||p.email||p.id)}</span>${unread?unreadBadge(unread):''}</button>`}).join('')||'Chưa có học viên'}
+function supportStudentListHtml(){return adminStudents.map(p=>{const unread=(supportThreads[p.id]||[]).filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(p.id+'/'+m.id)).length;return `<button class="choice" style="width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openSupportThread('${esc(p.id)}')"><span>💬 ${esc(p.name||p.email||p.id)}</span>${unread?unreadBadge(unread):''}</button>`}).join('')||'Chưa có học viên'}
 function refreshSupportStudentList(){const el=document.getElementById('supportStudentList');if(el&&page==='supportAdmin')el.innerHTML=supportStudentListHtml()}
 function refreshSupportMessages(){if(page!=='supportStudent'&&page!=='supportAdmin')return;const pane=document.getElementById('supportMessages');if(!pane)return;const isAdmin=currentUser==='admin';const nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<90;pane.innerHTML=supportMessages.map(m=>{const mine=m.senderRole===(isAdmin?'admin':'student');return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':isAdmin?'Học viên':'Trung tâm'} · ${m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi'}</div></div>`}).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>';if(nearBottom)pane.scrollTop=pane.scrollHeight;}
-function supportChatHtml(admin){return `<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px;background:#e3f1e9;font-weight:700">💬 ${admin?'Trò chuyện với '+esc(adminStudents.find(p=>p.id===supportSelected)?.name||'Học viên'):'Trung tâm Thịnh Phát'}</div><div id="supportMessages" style="height:380px;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px">${supportMessages.map(m=>{const mine=m.senderRole===(admin?'admin':'student');return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':admin?'Học viên':'Trung tâm'} · ${m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi'}</div></div>`}).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>'}</div><form onsubmit="sendSupportMessage(event)" style="padding:12px;border-top:1px solid #dce9e0;display:flex;gap:8px"><input id="supportInput" name="thinhphat_support_message_new" autocomplete="new-password" autocorrect="off" autocapitalize="sentences" spellcheck="false" style="flex:1;min-width:0;border:1px solid #c9d9cf;border-radius:10px;padding:10px" maxlength="2000" placeholder="Nhập tin nhắn..." value="${esc(supportDraft)}" oninput="supportDraft=this.value"><button class="btn" type="submit">Gửi ➤</button></form>${supportError?`<p class="notice red">${esc(supportError)}</p>`:''}</div>`}
-function subscribeSupport(uid){cleanSupport();supportMessages=[];supportError='';if(!uid)return;supportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportMessages=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));if(currentUser!=='admin'){unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt).length;nav()}if((page==='supportStudent'&&currentUser!=='admin')||(page==='supportAdmin'&&currentUser==='admin'&&supportSelected===uid))markSupportRead(uid,supportMessages);refreshSupportMessages();refreshSupportStudentList()},e=>{supportError='Không tải được tin nhắn: '+(e.code||e.message);if(page==='supportStudent'||page==='supportAdmin')render()}))}
+function supportChatHtml(admin){return `<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px;background:#e3f1e9;font-weight:700">💬 ${admin?'Trò chuyện với '+esc(adminStudents.find(p=>p.id===supportSelected)?.name||'Học viên'):'Trung tâm Thịnh Phát'}</div><div id="supportMessages" style="height:380px;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px">${supportMessages.map(m=>{const mine=m.senderRole===(admin?'admin':'student');return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':admin?'Học viên':'Trung tâm'} · ${m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi'}</div></div>`}).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>'}</div><form onsubmit="sendSupportMessage(event)" style="padding:12px;border-top:1px solid #dce9e0;display:flex;gap:8px"><input id="supportInput" name="thinhphat_support_message_new" autocomplete="new-password" autocorrect="off" autocapitalize="sentences" spellcheck="false" style="flex:1;min-width:0;border:1px solid #c9d9cf;border-radius:10px;padding:10px" maxlength="2000" placeholder="Nhập tin nhắn..." value="${esc(supportDraft)}" oninput="supportDraft=this.value"><button class="btn" type="submit">Gửi ➤</button></form><div id="supportSendStatus" role="status" aria-live="polite">${supportError?`<p class="notice red">${esc(supportError)}</p>`:''}</div></div>`}
+function subscribeSupport(uid){cleanSupport();supportMessages=[];supportError='';if(!uid)return;supportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportMessages=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));if(currentUser!=='admin'){unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;nav()}if((page==='supportStudent'&&currentUser!=='admin')||(page==='supportAdmin'&&currentUser==='admin'&&supportSelected===uid))markSupportRead(uid,supportMessages);refreshSupportMessages();refreshSupportStudentList()},e=>{supportError='Không tải được tin nhắn: '+(e.code||e.message);if(page==='supportStudent'||page==='supportAdmin')render()}))}
 function openSupportThread(uid){if(currentUser!=='admin')return;supportSelected=uid;supportDraft='';subscribeSupport(uid);render()}
-async function sendSupportMessage(event){event.preventDefault();const text=document.getElementById('supportInput')?.value.trim(),uid=currentUser==='admin'?supportSelected:auth.currentUser?.uid;if(!text||!uid)return;const btn=event.target.querySelector('button');btn.disabled=true;try{await addDoc(collection(db,'students',uid,'supportMessages'),{text,senderId:auth.currentUser.uid,senderRole:currentUser==='admin'?'admin':'student',createdAt:serverTimestamp()});supportDraft='';const liveInput=document.getElementById('supportInput');if(liveInput)liveInput.value='';supportError=''}catch(e){supportDraft=text;supportError='Không gửi được: '+(e.code||e.message)+' — Hãy kiểm tra Rules đã Publish và UID học viên trùng ID hồ sơ.';render()}finally{btn.disabled=false}}
-async function markSupportRead(uid,messages){const role=currentUser==='admin'?'student':'admin';const unread=messages.filter(m=>m.senderRole===role&&!m.readAt);await Promise.all(unread.map(m=>updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()}).catch(e=>console.warn('Không đánh dấu được tin nhắn',e))));}
-function watchAdminSupport(){adminSupportUnsubs.forEach(f=>{try{f()}catch(e){}});adminSupportUnsubs=[];supportThreads={};if(currentUser!=='admin')return;const ids=[...new Set(adminStudents.map(x=>x.id))];ids.forEach(uid=>adminSupportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportThreads[uid]=snap.docs.map(d=>({id:d.id,...d.data()}));adminUnreadSupport=Object.values(supportThreads).flat().filter(m=>m.senderRole==='student'&&!m.readAt).length;nav();refreshSupportStudentList()},e=>console.warn('Chat badge',uid,e))))}
+function supportStatus(message,failed=false){
+ const el=document.getElementById('supportSendStatus');
+ if(el)el.innerHTML=message?`<p class="notice ${failed?'red':''}" style="margin:8px 12px">${esc(message)}</p>`:'';
+}
+async function sendSupportMessage(event){
+ event.preventDefault();
+ if(supportSending)return;
+ const input=document.getElementById('supportInput');
+ const text=input?.value.trim();
+ const uid=currentUser==='admin'?supportSelected:auth.currentUser?.uid;
+ if(!text||!uid)return;
+ const btn=event.currentTarget.querySelector('button[type="submit"]');
+ supportSending=true;
+ if(btn){btn.disabled=true;btn.textContent='Đang gửi…'}
+ supportStatus('Đang gửi tin nhắn…');
+ let timeoutId;
+ try{
+  // Firestore can queue writes indefinitely while offline. The UI must not stay locked.
+  const write=addDoc(collection(db,'students',uid,'supportMessages'),{
+   text,senderId:auth.currentUser.uid,
+   senderRole:currentUser==='admin'?'admin':'student',
+   createdAt:serverTimestamp()
+  });
+  const result=await Promise.race([
+   write.then(()=>({kind:'sent'}),e=>({kind:'error',error:e})),
+   new Promise(resolve=>{timeoutId=setTimeout(()=>resolve({kind:'timeout'}),12000)})
+  ]);
+  if(result.kind==='sent'){
+   if(input&&input.value.trim()===text)input.value='';
+   supportDraft=input?.value||'';
+   supportError='';
+   supportStatus('');
+  }else if(result.kind==='timeout'){
+   supportDraft=input?.value||text;
+   supportStatus('Firebase chưa xác nhận sau 12 giây. Tin nhắn có thể vẫn đang chờ gửi. Hãy kiểm tra cuộc trò chuyện trước khi gửi lại để tránh trùng.',true);
+  }else{
+   supportDraft=input?.value||text;
+   supportError='Không gửi được: '+(result.error?.code||result.error?.message||'Lỗi không xác định');
+   supportStatus(supportError,true);
+  }
+ }catch(e){
+  supportDraft=input?.value||text;
+  supportError='Không gửi được: '+(e.code||e.message);
+  supportStatus(supportError,true);
+ }finally{
+  if(timeoutId)clearTimeout(timeoutId);
+  supportSending=false;
+  if(btn&&btn.isConnected){btn.disabled=false;btn.textContent='Gửi ➤'}
+ }
+}
+async function markSupportRead(uid,messages){
+ const role=currentUser==='admin'?'student':'admin';
+ const unread=messages.filter(m=>m.senderRole===role&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id));
+ if(!unread.length)return;
+ for(const m of unread)supportReadPending.add(uid+'/'+m.id);
+ if(currentUser==='admin'){
+  adminUnreadSupport=Object.entries(supportThreads).flatMap(([id,arr])=>arr.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(id+'/'+m.id))).length;
+ }else unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;
+ nav();refreshSupportStudentList();
+ await Promise.all(unread.map(async m=>{
+  try{await updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()})}
+  catch(e){console.warn('Không đánh dấu được tin nhắn',e);supportReadPending.delete(uid+'/'+m.id);supportStatus('Chưa lưu được trạng thái đã đọc: '+(e.code||e.message),true)}
+ }));
+}
+function watchAdminSupport(){adminSupportUnsubs.forEach(f=>{try{f()}catch(e){}});adminSupportUnsubs=[];supportThreads={};if(currentUser!=='admin')return;const ids=[...new Set(adminStudents.map(x=>x.id))];ids.forEach(uid=>adminSupportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportThreads[uid]=snap.docs.map(d=>({id:d.id,...d.data()}));adminUnreadSupport=Object.entries(supportThreads).flatMap(([studentId,msgs])=>msgs.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(studentId+'/'+m.id))).length;nav();refreshSupportStudentList()},e=>console.warn('Chat badge',uid,e))))}
 function startSupportAdmin(){if(currentUser!=='admin')return; // Danh sách học viên cập nhật theo listener students đã có.
  if(supportSelected)subscribeSupport(supportSelected);
 }
