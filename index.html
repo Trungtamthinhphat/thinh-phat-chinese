@@ -243,60 +243,62 @@ function supportStudentPage(){return `<h1>💬 Trợ giúp</h1><p class="muted">
 function supportAdminPage(){return `<h1>💬 Hỗ trợ học viên</h1><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px"><section class="card"><h3>Danh sách học viên</h3><div id="supportStudentList">${supportStudentListHtml()}</div></section><section>${supportSelected?supportChatHtml(true):'<div class="card">Chọn một học viên để xem và trả lời tin nhắn.</div>'}</section></div>`}
 function supportStudentListHtml(){return adminStudents.map(p=>{const unread=(supportThreads[p.id]||[]).filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(p.id+'/'+m.id)).length;return `<button class="choice" style="width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between" onclick="openSupportThread('${esc(p.id)}')"><span>💬 ${esc(p.name||p.email||p.id)}</span>${unread?unreadBadge(unread):''}</button>`}).join('')||'Chưa có học viên'}
 function refreshSupportStudentList(){const el=document.getElementById('supportStudentList');if(el&&page==='supportAdmin')el.innerHTML=supportStudentListHtml()}
-function refreshSupportMessages(){if(page!=='supportStudent'&&page!=='supportAdmin')return;const pane=document.getElementById('supportMessages');if(!pane)return;const isAdmin=currentUser==='admin';const nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<90;pane.innerHTML=supportMessages.map(m=>{const mine=m.senderRole===(isAdmin?'admin':'student');return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':isAdmin?'Học viên':'Trung tâm'} · ${m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi'}</div></div>`}).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>';if(nearBottom)pane.scrollTop=pane.scrollHeight;}
-function supportChatHtml(admin){return `<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px;background:#e3f1e9;font-weight:700">💬 ${admin?'Trò chuyện với '+esc(adminStudents.find(p=>p.id===supportSelected)?.name||'Học viên'):'Trung tâm Thịnh Phát'}</div><div id="supportMessages" style="height:380px;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px">${supportMessages.map(m=>{const mine=m.senderRole===(admin?'admin':'student');return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':admin?'Học viên':'Trung tâm'} · ${m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi'}</div></div>`}).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>'}</div><form onsubmit="sendSupportMessage(event)" style="padding:12px;border-top:1px solid #dce9e0;display:flex;gap:8px"><input id="supportInput" name="thinhphat_support_message_new" autocomplete="new-password" autocorrect="off" autocapitalize="sentences" spellcheck="false" style="flex:1;min-width:0;border:1px solid #c9d9cf;border-radius:10px;padding:10px" maxlength="2000" placeholder="Nhập tin nhắn..." value="${esc(supportDraft)}" oninput="supportDraft=this.value"><button class="btn" type="submit">Gửi ➤</button></form><div id="supportSendStatus" role="status" aria-live="polite">${supportError?`<p class="notice red">${esc(supportError)}</p>`:''}</div></div>`}
+function refreshSupportMessages(){if(page!=='supportStudent'&&page!=='supportAdmin')return;const pane=document.getElementById('supportMessages');if(!pane)return;const isAdmin=currentUser==='admin';const nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<90;pane.innerHTML=visibleSupportMessages().map(m=>supportMessageMarkup(m,isAdmin)).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>';if(nearBottom)pane.scrollTop=pane.scrollHeight;}
+function supportChatHtml(admin){return `<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px;background:#e3f1e9;font-weight:700">💬 ${admin?'Trò chuyện với '+esc(adminStudents.find(p=>p.id===supportSelected)?.name||'Học viên'):'Trung tâm Thịnh Phát'}</div><div id="supportMessages" style="height:380px;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px">${visibleSupportMessages().map(m=>supportMessageMarkup(m,admin)).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>'}</div><form onsubmit="sendSupportMessage(event)" style="padding:12px;border-top:1px solid #dce9e0;display:flex;gap:8px"><input id="supportInput" name="thinhphat_support_message_new" autocomplete="new-password" autocorrect="off" autocapitalize="sentences" spellcheck="false" style="flex:1;min-width:0;border:1px solid #c9d9cf;border-radius:10px;padding:10px" maxlength="2000" placeholder="Nhập tin nhắn..." value="${esc(supportDraft)}" oninput="supportDraft=this.value"><button class="btn" type="submit">Gửi ➤</button></form><div id="supportSendStatus" role="status" aria-live="polite">${supportError?`<p class="notice red">${esc(supportError)}</p>`:''}</div></div>`}
 function subscribeSupport(uid){cleanSupport();supportMessages=[];supportError='';if(!uid)return;supportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportMessages=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));if(currentUser!=='admin'){unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;nav()}if((page==='supportStudent'&&currentUser!=='admin')||(page==='supportAdmin'&&currentUser==='admin'&&supportSelected===uid))markSupportRead(uid,supportMessages);refreshSupportMessages();refreshSupportStudentList()},e=>{supportError='Không tải được tin nhắn: '+(e.code||e.message);if(page==='supportStudent'||page==='supportAdmin')render()}))}
 function openSupportThread(uid){if(currentUser!=='admin')return;supportSelected=uid;supportDraft='';subscribeSupport(uid);render()}
 function supportStatus(message,failed=false){
  const el=document.getElementById('supportSendStatus');
  if(el)el.innerHTML=message?`<p class="notice ${failed?'red':''}" style="margin:8px 12px">${esc(message)}</p>`:'';
 }
-async function sendSupportMessage(event){
- event.preventDefault();
- if(supportSending)return;
- const input=document.getElementById('supportInput');
- const text=input?.value.trim();
+// Optimistic chat: do not block the composer on Firestore's network acknowledgement.
+const supportOutbox=new Map();
+function visibleSupportMessages(){
  const uid=currentUser==='admin'?supportSelected:auth.currentUser?.uid;
- if(!text||!uid)return;
- const btn=event.currentTarget.querySelector('button[type="submit"]');
- supportSending=true;
- if(btn){btn.disabled=true;btn.textContent='Đang gửi…'}
- supportStatus('Đang gửi tin nhắn…');
- let timeoutId;
- try{
-  // Firestore can queue writes indefinitely while offline. The UI must not stay locked.
-  const write=addDoc(collection(db,'students',uid,'supportMessages'),{
-   text,senderId:auth.currentUser.uid,
-   senderRole:currentUser==='admin'?'admin':'student',
-   createdAt:serverTimestamp()
-  });
-  const result=await Promise.race([
-   write.then(()=>({kind:'sent'}),e=>({kind:'error',error:e})),
-   new Promise(resolve=>{timeoutId=setTimeout(()=>resolve({kind:'timeout'}),12000)})
-  ]);
-  if(result.kind==='sent'){
-   if(input&&input.value.trim()===text)input.value='';
-   supportDraft=input?.value||'';
-   supportError='';
-   supportStatus('');
-  }else if(result.kind==='timeout'){
-   supportDraft=input?.value||text;
-   supportStatus('Firebase chưa xác nhận sau 12 giây. Tin nhắn có thể vẫn đang chờ gửi. Hãy kiểm tra cuộc trò chuyện trước khi gửi lại để tránh trùng.',true);
-  }else{
-   supportDraft=input?.value||text;
-   supportError='Không gửi được: '+(result.error?.code||result.error?.message||'Lỗi không xác định');
-   supportStatus(supportError,true);
-  }
- }catch(e){
-  supportDraft=input?.value||text;
-  supportError='Không gửi được: '+(e.code||e.message);
-  supportStatus(supportError,true);
- }finally{
-  if(timeoutId)clearTimeout(timeoutId);
-  supportSending=false;
-  if(btn&&btn.isConnected){btn.disabled=false;btn.textContent='Gửi ➤'}
- }
+ const savedIds=new Set(supportMessages.map(m=>m.id));
+ return [...supportMessages,...[...supportOutbox.values()].filter(m=>m.threadUid===uid&&!savedIds.has(m.id))]
+  .sort((a,b)=>(a.localTime||a.createdAt?.toMillis?.()||0)-(b.localTime||b.createdAt?.toMillis?.()||0));
 }
+function supportMessageMarkup(m,admin){
+ const mine=m.senderRole===(admin?'admin':'student');
+ const status=m.pending?' · Đang đồng bộ…':m.failed?' · Chưa gửi được':'',label=m.pending||m.failed?'Vừa nhập':(m.createdAt?.toDate?.().toLocaleString('vi-VN')||'Vừa gửi');
+ return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:85%;background:${m.failed?'#fff0ef':mine?'#d9f0e4':'#f0f2f0'};border-radius:14px;padding:9px 13px;white-space:pre-wrap;overflow-wrap:anywhere"><div>${esc(m.text||'')}</div><div class="mini muted">${mine?'Bạn':admin?'Học viên':'Trung tâm'} · ${label}${status}</div>${m.failed?`<button type="button" class="btn secondary" style="margin-top:6px" onclick="retrySupportMessage('${m.id}')">Gửi lại</button>`:''}</div>`;
+}
+function sendSupportMessage(event){
+ event.preventDefault();
+ const input=document.getElementById('supportInput');
+ const message=input?.value.trim();
+ const uid=currentUser==='admin'?supportSelected:auth.currentUser?.uid;
+ if(!message||!uid||!auth.currentUser)return;
+ const senderId=auth.currentUser.uid,senderRole=currentUser==='admin'?'admin':'student';
+ const ref=doc(collection(db,'students',uid,'supportMessages'));
+ const item={id:ref.id,threadUid:uid,text:message,senderId,senderRole,localTime:Date.now(),pending:true,failed:false};
+ supportOutbox.set(ref.id,item);
+ input.value='';supportDraft='';supportStatus('');refreshSupportMessages();input.focus();
+ // A deterministic document ID makes retries idempotent (no duplicate message).
+ setDoc(ref,{text:message,senderId,senderRole,createdAt:serverTimestamp()}).then(()=>{
+  supportOutbox.delete(ref.id);
+  refreshSupportMessages();
+ },error=>{
+  const item=supportOutbox.get(ref.id);
+  if(item){item.pending=false;item.failed=true;}
+  supportStatus('Tin nhắn chưa được gửi: '+(error.code||error.message||'Lỗi kết nối')+'. Bạn có thể bấm Gửi lại.',true);
+  refreshSupportMessages();
+ });
+}
+function retrySupportMessage(id){
+ const item=supportOutbox.get(id);
+ if(!item||item.pending||!auth.currentUser)return;
+ if(item.senderId!==auth.currentUser.uid)return;
+ item.pending=true;item.failed=false;supportStatus('');refreshSupportMessages();
+ setDoc(doc(db,'students',item.threadUid,'supportMessages',id),{
+  text:item.text,senderId:item.senderId,senderRole:item.senderRole,createdAt:serverTimestamp()
+ }).then(()=>{supportOutbox.delete(id);refreshSupportMessages()},error=>{
+  item.pending=false;item.failed=true;
+  supportStatus('Chưa gửi được: '+(error.code||error.message),true);refreshSupportMessages();
+ });
+}
+
 async function markSupportRead(uid,messages){
  const role=currentUser==='admin'?'student':'admin';
  const unread=messages.filter(m=>m.senderRole===role&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id));
@@ -308,7 +310,7 @@ async function markSupportRead(uid,messages){
  nav();refreshSupportStudentList();
  await Promise.all(unread.map(async m=>{
   try{await updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()})}
-  catch(e){console.warn('Không đánh dấu được tin nhắn',e);supportReadPending.delete(uid+'/'+m.id);supportStatus('Chưa lưu được trạng thái đã đọc: '+(e.code||e.message),true)}
+  catch(e){console.warn('Không đánh dấu được tin nhắn',e);supportStatus('Không lưu được trạng thái đã đọc trên Firebase: '+(e.code||e.message),true)}
  }));
 }
 function watchAdminSupport(){adminSupportUnsubs.forEach(f=>{try{f()}catch(e){}});adminSupportUnsubs=[];supportThreads={};if(currentUser!=='admin')return;const ids=[...new Set(adminStudents.map(x=>x.id))];ids.forEach(uid=>adminSupportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportThreads[uid]=snap.docs.map(d=>({id:d.id,...d.data()}));adminUnreadSupport=Object.entries(supportThreads).flatMap(([studentId,msgs])=>msgs.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(studentId+'/'+m.id))).length;nav();refreshSupportStudentList()},e=>console.warn('Chat badge',uid,e))))}
