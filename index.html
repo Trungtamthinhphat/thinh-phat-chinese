@@ -172,7 +172,7 @@ function studentsAdminPage(){
  <div class="card"><div class="row between" style="flex-wrap:wrap"><h3 style="margin:0">Danh sách học viên (${people.length})</h3><button class="btn secondary" onclick="loadAdminStudents()">↻ Tải lại Firebase</button></div>
  ${studentsLoading?'<p>Đang tải dữ liệu...</p>':''}${studentsError?`<p class="notice red">${esc(studentsError)}</p>`:''}
  <div class="row" style="flex-wrap:wrap;margin-top:14px"><input id="studentSearch" placeholder="🔎 Tìm tên hoặc email..." oninput="filterAdminStudents()" style="flex:1;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:10px"><select id="studentLevelFilter" onchange="filterAdminStudents()" style="padding:10px;border:1px solid var(--line);border-radius:10px"><option value="">Tất cả khóa</option>${[1,2,3,4,5].map(i=>`<option>HSK${i}</option>`).join('')}</select></div>
- <div class="scroll"><table class="admin-table"><thead><tr><th>Học viên</th><th>Trạng thái</th><th>Khóa được cấp</th><th>Thao tác</th></tr></thead><tbody id="adminStudentsRows">${people.length?people.map((u,i)=>`<tr data-name="${esc((u.name+' '+u.email).toLowerCase())}" data-courses="${esc((u.enrolledCourses||[]).join(','))}"><td><b>${esc(u.name||'Chưa có tên')}</b><div class="mini muted">${esc(u.email||u.id)}</div></td><td><span class="tag ${u.status==='active'?'':'red'}">${u.status==='active'?'Đang học':u.status==='pending'?'Chờ duyệt':esc(u.status||'Chưa duyệt')}</span></td><td>${esc((u.enrolledCourses||[]).join(', ')||'Chưa cấp')}</td><td><button class="btn secondary" onclick="openStudentProgress('${esc(u.id)}')">Xem tiến độ</button> <button class="btn outline" onclick="editStudentAccess(${i})">Cấp quyền</button></td></tr>`).join(''):'<tr><td colspan="4">Chưa có học viên hoặc chưa tải dữ liệu.</td></tr>'}</tbody></table></div></div>
+ <div class="scroll"><table class="admin-table"><thead><tr><th>Học viên</th><th>Trạng thái</th><th>Khóa được cấp</th><th>Thao tác</th></tr></thead><tbody id="adminStudentsRows">${people.length?people.map((u,i)=>`<tr data-name="${esc((u.name+' '+u.email).toLowerCase())}" data-courses="${esc((u.enrolledCourses||[]).join(','))}"><td><b>${esc(u.name||'Chưa có tên')}</b><div class="mini muted">${esc(u.email||u.id)}</div></td><td><span class="tag ${u.status==='active'?'':'red'}">${u.status==='active'?'Đang học':u.status==='pending'?'Chờ duyệt':esc(u.status||'Chưa duyệt')}</span></td><td>${esc((u.enrolledCourses||[]).join(', ')||'Chưa cấp')}</td><td><button class="btn secondary" data-student-progress="${esc(u.id)}">Xem tiến độ</button> <button class="btn outline" onclick="editStudentAccess(${i})">Cấp quyền</button></td></tr>`).join(''):'<tr><td colspan="4">Chưa có học viên hoặc chưa tải dữ liệu.</td></tr>'}</tbody></table></div></div>
  <div id="studentPermissionEditor" class="card" style="margin-top:16px"><p>Chọn <b>Cấp quyền</b> ở một học viên để chỉnh sửa trạng thái và các khóa HSK được phép học.</p></div>
  <p class="muted mini">Tài khoản đăng nhập cần tồn tại trong Firebase Authentication. Trang này quản lý hồ sơ và quyền học; chức năng tạo tài khoản mới sẽ làm ở bước sau.</p>`;
 }
@@ -385,7 +385,11 @@ function deviceStudentPage(){return `<h1>📱 Yêu cầu đổi thiết bị</h1
 
 async function openStudentProgress(uid){
  if(currentUser!=='admin')return;
- selectedStudentId=uid;studentDetailError='';studentSubmissions=[];page='studentProgress';render();
+ selectedStudentId=uid;studentDetailError='';studentSubmissions=[];page='studentProgress';
+ try { render(); } catch(e) {
+   console.error('Không mở được tiến độ:',e);
+   document.querySelector('#app').innerHTML='<h2>Tiến độ học viên</h2><p class="notice red">Không hiển thị được tiến độ: '+esc(e.message)+'</p><button class="btn secondary" onclick="go(\'studentsAdmin\')">Quay lại</button>';
+ }
  await loadStudentProgress();
 }
 async function loadStudentProgress(){
@@ -411,7 +415,7 @@ function studentProgressPage(){
  if(!u)return '<div class="card">Đang tải tiến độ học viên...</div>';
  const allowed=new Set((u.enrolledCourses||[]).map(x=>String(x).toUpperCase().replace(/\s+/g,'')));
  const gradeMap=Object.fromEntries(studentSubmissions.map(x=>[x.id,x]));
- const courses=state.courses.filter(c=>allowed.has('HSK'+c.id)||allowed.has(String(c.id)));
+ const courses=(state.courses||[]).filter(c=>allowed.has('HSK'+c.id)||allowed.has(String(c.id)));
  const getFinal=(l)=>{
   const auto=Number(u.scores?.[l.id]?.score||0);
   const item=gradeMap[l.id];const g=item?.grade,sub=item?.submission;
@@ -424,10 +428,10 @@ function studentProgressPage(){
  ${studentDetailError?`<p class="notice red">${esc(studentDetailError)}</p>`:''}
  <p class="muted">Mỗi thanh tương ứng một khóa HSK được cấp quyền. Bài chỉ được tính khi xem ít nhất 80% video, đã học từ vựng và đạt trên 60/100 điểm (bao gồm điểm tự luận đã chấm).</p>
  ${courses.length?courses.map(c=>{
-  const total=c.lessons.length,count=c.lessons.filter(done).length,pct=total?Math.round(count/total*100):0;
+  const lessons=Array.isArray(c.lessons)?c.lessons:[];const total=lessons.length,count=lessons.filter(done).length,pct=total?Math.round(count/total*100):0;
   return `<div class="card" style="margin:14px 0"><div class="row between"><h3 style="margin:0">HSK${c.id}</h3><b>${count}/${total} bài · ${pct}%</b></div>
   <div class="progress" style="margin:12px 0"><div style="width:${pct}%"></div></div>
-  ${total?`<div class="scroll"><table class="admin-table"><tr><th>Bài học</th><th>Video</th><th>Từ vựng</th><th>Điểm</th><th>Tiến độ</th></tr>${c.lessons.map(l=>{
+  ${total?`<div class="scroll"><table class="admin-table"><tr><th>Bài học</th><th>Video</th><th>Từ vựng</th><th>Điểm</th><th>Tiến độ</th></tr>${lessons.map(l=>{
    const score=u.scores?.[l.id]?getFinal(l):null;
    return `<tr><td>${esc(l.title||l.id)}</td><td>${Number(u.watched?.[l.id]||0)}%</td><td>${u.vocabDone?.[l.id]?'Đã học':'Chưa'}</td><td>${score===null?'Chưa làm':score+'/100'}</td><td>${done(l)?'<span style="color:#247c70;font-weight:bold">Hoàn thành</span>':'Chưa hoàn thành'}</td></tr>`
   }).join('')}</table></div>`:'<p class="muted">Khóa này chưa có bài học.</p>'}</div>`
@@ -504,5 +508,16 @@ async function reviewDeviceRequest(id,status){
 }
 Object.assign(window,{sendNotice,toggleSpeakingHint,editLesson,deleteLesson,cancelLessonEdit,setWrittenAnswer,markStreamViewed,loadAdminScores});window.submitDeviceRequest=submitDeviceRequest;window.loadDeviceRequests=loadDeviceRequests;window.reviewDeviceRequest=reviewDeviceRequest;
 
-window.refreshStudentResults=refreshStudentResults;window.loadAdminStudents=loadAdminStudents;window.openStudentProgress=openStudentProgress;window.loadStudentProgress=loadStudentProgress;window.editStudentAccess=editStudentAccess;window.setStudentCourseSelection=setStudentCourseSelection;window.saveStudentAccess=saveStudentAccess;window.save=save;window.user=user;window.course=course;window.lesson=lesson;window.allLessons=allLessons;window.isDone=isDone;window.progress=progress;window.supportDraft=supportDraft;window.openSupportThread=openSupportThread;window.sendSupportMessage=sendSupportMessage;window.openGradingStudent=openGradingStudent;window.saveTeacherGrade=saveTeacherGrade;window.appendOrderWord=appendOrderWord;window.clearOrderAnswer=clearOrderAnswer;window.go=go;window.nav=nav;window.render=render;window.homePage=homePage;window.coursesPage=coursesPage;window.openCourse=openCourse;window.openLesson=openLesson;window.lessonPage=lessonPage;window.changeTab=changeTab;window.videoPanel=videoPanel;window.setupVideo=setupVideo;window.vocabPanel=vocabPanel;window.flipCard=flipCard;window.vocabMove=vocabMove;window.finishVocab=finishVocab;window.grammarPanel=grammarPanel;window.speak=speak;window.listeningPanel=listeningPanel;window.speakingPanel=speakingPanel;window.readingPanel=readingPanel;window.quizPanel=quizPanel;window.setAnswer=setAnswer;window.submitQuiz=submitQuiz;window.retryQuiz=retryQuiz;window.finishLesson=finishLesson;window.chooseVocabLevel=chooseVocabLevel;window.vocabPage=vocabPage;window.openVocab=openVocab;window.resultsPage=resultsPage;window.adminPage=adminPage;window.alertsPage=alertsPage;window.saveAlert=saveAlert;window.editorPage=editorPage;window.addLesson=addLesson;window.logoutDemo=logoutDemo;
+window.refreshStudentResults=refreshStudentResults;window.loadAdminStudents=loadAdminStudents;
+// Open progress through a stable delegated handler even after the student list rerenders.
+document.addEventListener('click',event=>{
+ const button=event.target.closest('[data-student-progress]');
+ if(!button)return;
+ event.preventDefault();
+ openStudentProgress(button.getAttribute('data-student-progress')).catch(error=>{
+   console.error('Lỗi mở tiến độ:',error);
+   alert('Không mở được tiến độ: '+(error.message||error));
+ });
+});
+window.openStudentProgress=openStudentProgress;window.loadStudentProgress=loadStudentProgress;window.editStudentAccess=editStudentAccess;window.setStudentCourseSelection=setStudentCourseSelection;window.saveStudentAccess=saveStudentAccess;window.save=save;window.user=user;window.course=course;window.lesson=lesson;window.allLessons=allLessons;window.isDone=isDone;window.progress=progress;window.supportDraft=supportDraft;window.openSupportThread=openSupportThread;window.sendSupportMessage=sendSupportMessage;window.openGradingStudent=openGradingStudent;window.saveTeacherGrade=saveTeacherGrade;window.appendOrderWord=appendOrderWord;window.clearOrderAnswer=clearOrderAnswer;window.go=go;window.nav=nav;window.render=render;window.homePage=homePage;window.coursesPage=coursesPage;window.openCourse=openCourse;window.openLesson=openLesson;window.lessonPage=lessonPage;window.changeTab=changeTab;window.videoPanel=videoPanel;window.setupVideo=setupVideo;window.vocabPanel=vocabPanel;window.flipCard=flipCard;window.vocabMove=vocabMove;window.finishVocab=finishVocab;window.grammarPanel=grammarPanel;window.speak=speak;window.listeningPanel=listeningPanel;window.speakingPanel=speakingPanel;window.readingPanel=readingPanel;window.quizPanel=quizPanel;window.setAnswer=setAnswer;window.submitQuiz=submitQuiz;window.retryQuiz=retryQuiz;window.finishLesson=finishLesson;window.chooseVocabLevel=chooseVocabLevel;window.vocabPage=vocabPage;window.openVocab=openVocab;window.resultsPage=resultsPage;window.adminPage=adminPage;window.alertsPage=alertsPage;window.saveAlert=saveAlert;window.editorPage=editorPage;window.addLesson=addLesson;window.logoutDemo=logoutDemo;
 </script></body></html>
