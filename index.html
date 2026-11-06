@@ -230,7 +230,7 @@ function startLive(){stopLive();const uid=auth.currentUser?.uid,admin=currentUse
  const onError=(area)=>(e)=>{console.error('Realtime '+area,e);if(area==='thông báo'){liveNoticesError='Không đồng bộ được thông báo: '+(e.code||e.message);if(page==='studentNotices')render()}};
  const levels=admin?[1,2,3,4,5]:[1,2,3,4,5].filter(n=>canAccessCourse(n));
  levels.forEach(n=>liveUnsubs.push(onSnapshot(collection(db,'courses','HSK'+n,'lessons'),snap=>{const c=state.courses.find(x=>x.id===n);if(!c)return;const old=JSON.stringify(c.lessons.map(x=>[x.id,x.title,x.listeningText,x.listeningAudio]));c.lessons=snap.docs.map(d=>({...d.data(),id:d.id}));const changed=old!==JSON.stringify(c.lessons.map(x=>[x.id,x.title,x.listeningText,x.listeningAudio]));if(changed&&currentUser&&(page!=='editor'||!editingLesson))render()},onError('bài học'))));
- if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{unreadSupport=snap.docs.filter(d=>d.data().senderRole==='admin'&&!d.data().readAt&&!supportReadPending.has(uid+'/'+d.id)).length;nav()},onError('tin nhắn')));
+ if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{snap.docs.forEach(d=>{if(d.data().readAt)supportReadPending.delete(uid+'/'+d.id)});unreadSupport=snap.docs.filter(d=>d.data().senderRole==='admin'&&!d.data().readAt&&!supportReadPending.has(uid+'/'+d.id)).length;nav()},onError('tin nhắn')));
  if(!admin)liveUnsubs.push(onSnapshot(collection(db,'students',uid,'inbox'),snap=>{liveNotices=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));unreadNotice=liveNotices.filter(n=>!n.readAt&&!noticeReadPending.has(n.id)).length;nav();if(page==='studentNotices'){markNoticesRead();render()}},onError('thông báo')));
  if(!admin){liveUnsubs.push(onSnapshot(collection(db,'students',uid,'submissions'),snap=>{snap.docs.forEach(d=>{const sub=d.data(),g=essayGradeCache[d.id];if(!g||!g.submittedAt||!sub.submittedAt||g.submittedAt.toMillis()!==sub.submittedAt.toMillis())essayGradeCache[d.id]={status:'pending'};});if(page==='results'||page==='home')render()},onError('bài nộp')));liveUnsubs.push(onSnapshot(collection(db,'students',uid,'grades'),snap=>{snap.docs.forEach(d=>essayGradeCache[d.id]=d.data());if(page==='results'||page==='home'||(page==='lesson'&&submitted))render()},onError('chấm bài')));liveUnsubs.push(onSnapshot(doc(db,'students',uid),snap=>{if(!snap.exists())return;const d=snap.data(),oldAccess=JSON.stringify(studentAccess.enrolledCourses);studentAccess={status:d.status||'pending',enrolledCourses:Array.isArray(d.enrolledCourses)?d.enrolledCourses:[]};const u=user();u.name=d.name||u.name;u.scores=d.scores||{};u.completed=d.completed||{};u.watched=d.watched||{};u.vocabDone=d.vocabDone||{};if(oldAccess!==JSON.stringify(studentAccess.enrolledCourses)){startLive();render();return}if(currentUser&&page!=='lesson'&&page!=='supportStudent')render()},onError('tiến độ')))}else{liveUnsubs.push(onSnapshot(collection(db,'students'),snap=>{adminStudents=snap.docs.map(d=>({id:d.id,...d.data()}));watchAdminSupport();watchAdminGrading();if(['studentsAdmin','scoresAdmin','studentDetail'].includes(page))render()},onError('học viên')))}
 }
@@ -276,7 +276,7 @@ function supportStudentListHtml(){return adminStudents.map(p=>{const unread=(sup
 function refreshSupportStudentList(){const el=document.getElementById('supportStudentList');if(el&&page==='supportAdmin')el.innerHTML=supportStudentListHtml()}
 function refreshSupportMessages(){if(page!=='supportStudent'&&page!=='supportAdmin')return;const pane=document.getElementById('supportMessages');if(!pane)return;const isAdmin=currentUser==='admin';const nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<90;pane.innerHTML=visibleSupportMessages().map(m=>supportMessageMarkup(m,isAdmin)).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>';if(nearBottom)pane.scrollTop=pane.scrollHeight;}
 function supportChatHtml(admin){return `<div class="card" style="padding:0;overflow:hidden"><div style="padding:14px;background:#e3f1e9;font-weight:700">💬 ${admin?'Trò chuyện với '+esc(adminStudents.find(p=>p.id===supportSelected)?.name||'Học viên'):'Trung tâm Thịnh Phát'}</div><div id="supportMessages" style="height:380px;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:10px">${visibleSupportMessages().map(m=>supportMessageMarkup(m,admin)).join('')||'<p class="muted">Chưa có tin nhắn. Hãy bắt đầu cuộc trò chuyện.</p>'}</div><form autocomplete="off" onsubmit="sendSupportMessage(event)" style="padding:12px;border-top:1px solid #dce9e0;display:flex;gap:8px;align-items:stretch"><textarea id="supportInput" class="chat-input" name="support_chat_text" autocomplete="off" autocorrect="off" spellcheck="false" rows="1" style="flex:1;min-width:0;min-height:44px;height:44px;max-height:140px;resize:vertical;border:1px solid #c9d9cf;border-radius:10px;padding:10px" maxlength="2000" placeholder="Nhập tin nhắn..." oninput="supportDraft=this.value" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();this.form.requestSubmit()}">${esc(supportDraft)}</textarea><button class="btn" type="submit">Gửi ➤</button></form><div id="supportSendStatus" role="status" aria-live="polite">${supportError?`<p class="notice red">${esc(supportError)}</p>`:''}</div></div>`}
-function subscribeSupport(uid){cleanSupport();supportMessages=[];supportError='';if(!uid)return;supportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportMessages=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));if(currentUser!=='admin'){unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;nav()}if((page==='supportStudent'&&currentUser!=='admin')||(page==='supportAdmin'&&currentUser==='admin'&&supportSelected===uid))markSupportRead(uid,supportMessages);refreshSupportMessages();refreshSupportStudentList()},e=>{supportError='Không tải được tin nhắn: '+(e.code||e.message);if(page==='supportStudent'||page==='supportAdmin')render()}))}
+function subscribeSupport(uid){cleanSupport();supportMessages=[];supportError='';if(!uid)return;supportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{snap.docs.forEach(d=>{if(d.data().readAt)supportReadPending.delete(uid+'/'+d.id)});supportMessages=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));if(currentUser!=='admin'){unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;nav()}if((page==='supportStudent'&&currentUser!=='admin')||(page==='supportAdmin'&&currentUser==='admin'&&supportSelected===uid))markSupportRead(uid,supportMessages);refreshSupportMessages();refreshSupportStudentList()},e=>{supportError='Không tải được tin nhắn: '+(e.code||e.message);if(page==='supportStudent'||page==='supportAdmin')render()}))}
 function openSupportThread(uid){if(currentUser!=='admin')return;supportSelected=uid;supportDraft='';subscribeSupport(uid);render()}
 function supportStatus(message,failed=false){
  const el=document.getElementById('supportSendStatus');
@@ -335,13 +335,26 @@ async function markSupportRead(uid,messages){
  const unread=messages.filter(m=>m.senderRole===role&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id));
  if(!unread.length)return;
  for(const m of unread)supportReadPending.add(uid+'/'+m.id);
- if(currentUser==='admin'){
-  adminUnreadSupport=Object.entries(supportThreads).flatMap(([id,arr])=>arr.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(id+'/'+m.id))).length;
- }else unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;
- nav();refreshSupportStudentList();
+ const recalc=()=>{
+  if(currentUser==='admin')adminUnreadSupport=Object.entries(supportThreads).flatMap(([id,arr])=>arr.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(id+'/'+m.id))).length;
+  else unreadSupport=supportMessages.filter(m=>m.senderRole==='admin'&&!m.readAt&&!supportReadPending.has(uid+'/'+m.id)).length;
+  nav();refreshSupportStudentList();
+ };
+ recalc();
  await Promise.all(unread.map(async m=>{
-  try{await updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()})}
-  catch(e){console.warn('Không đồng bộ được readAt (không ảnh hưởng gửi/nhận tin nhắn):',e); /* Không hiện cảnh báo lỗi đã đọc trong ô chat; trạng thái đã đọc trên máy chủ cần kiểm tra Rules riêng. */}
+  const key=uid+'/'+m.id;
+  try{
+   await updateDoc(doc(db,'students',uid,'supportMessages',m.id),{readAt:serverTimestamp()});
+   // The server snapshot is authoritative; remove the temporary UI suppression.
+   // Snapshot listeners will show readAt and keep the badge hidden after reload.
+  }catch(e){
+   supportReadPending.delete(key);
+   console.error('Firebase không lưu được trạng thái đã đọc',key,e);
+   // Do not silently claim a read receipt was persisted.
+   supportError='Không lưu được trạng thái đã đọc ('+(e.code||e.message)+'). Kiểm tra Firestore Rules.';
+   recalc();
+   if((currentUser==='admin'&&page==='supportAdmin')||(currentUser!=='admin'&&page==='supportStudent'))refreshSupportMessages();
+  }
  }));
 }
 function watchAdminSupport(){adminSupportUnsubs.forEach(f=>{try{f()}catch(e){}});adminSupportUnsubs=[];supportThreads={};if(currentUser!=='admin')return;const ids=[...new Set(adminStudents.map(x=>x.id))];ids.forEach(uid=>adminSupportUnsubs.push(onSnapshot(collection(db,'students',uid,'supportMessages'),snap=>{supportThreads[uid]=snap.docs.map(d=>({id:d.id,...d.data()}));adminUnreadSupport=Object.entries(supportThreads).flatMap(([studentId,msgs])=>msgs.filter(m=>m.senderRole==='student'&&!m.readAt&&!supportReadPending.has(studentId+'/'+m.id))).length;nav();refreshSupportStudentList()},e=>console.warn('Chat badge',uid,e))))}
